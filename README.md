@@ -2,8 +2,7 @@
 
 Visual programming environment for Lua with drag-and-drop blocks
 
-This plugin is part of Quantum Analysis Helper.
-Quantum Analysis Helper is free software: you can redistribute it and/or modify
+This plugin is part of QHA, is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
