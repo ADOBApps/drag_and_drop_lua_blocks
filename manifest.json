@@ -1,0 +1,10 @@
+{
+  "name": "Drag-and-Drop Lua Blocks",
+  "id": "drag_and_drop_lua_blocks",
+  "version": "1.0.0",
+  "author": "Acxel Orozco",
+  "description": "Visual programming environment for Lua with drag-and-drop blocks",
+  "type": "python",
+  "category": "development",
+  "main": "__init__.py"
+}

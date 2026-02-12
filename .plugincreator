@@ -1,0 +1,14 @@
+{
+  "manifest": {
+    "name": "Drag-and-Drop Lua Blocks",
+    "id": "drag_and_drop_lua_blocks",
+    "version": "",
+    "author": "",
+    "description": "",
+    "type": "python",
+    "category": "analysis",
+    "main": "__init__.py",
+    "icon": ""
+  },
+  "dependencies": []
+}
