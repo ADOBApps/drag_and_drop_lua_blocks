@@ -2,6 +2,22 @@
 
 Visual programming environment for Lua with drag-and-drop blocks
 
+This plugin is part of Quantum Analysis Helper.
+Quantum Analysis Helper is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Quantum Analysis Helper is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+Copyright (C) [2026] Acxel David Orozco Baldomero
+
 ## Features
 - Visual programming environment for Lua with drag-and-drop blocks
 - One-click code generator
@@ -21,7 +37,7 @@ Visual programming environment for Lua with drag-and-drop blocks
 Edit the `manifest.json` file to change plugin settings.
 
 ## Development
-This plugin was created with the Plugin Creator tool.
+This plugin was created with the Plugin Maker tool.
 
 ### Key Changes
 1. **Centralized Python Utilities**: All shared Python code moved to `plugins.libs.python_utils`
