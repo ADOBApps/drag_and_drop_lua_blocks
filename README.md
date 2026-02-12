@@ -3,9 +3,8 @@
 Visual programming environment for Lua with drag-and-drop blocks
 
 ## Features
-- Feature 1
-- Feature 2
-- Feature 3
+- Visual programming environment for Lua with drag-and-drop blocks
+- One-click code generator
 
 ## Installation
 1. Download the plugin ZIP file
