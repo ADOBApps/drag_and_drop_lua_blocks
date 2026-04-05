@@ -27,7 +27,9 @@ from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsTextItem,
     QGraphicsLineItem, QGraphicsDropShadowEffect, QToolBox,
     QGroupBox, QComboBox, QInputDialog, QMessageBox, QMenu,
-    QGraphicsObject, QStyleOptionGraphicsItem
+    QGraphicsObject, QStyleOptionGraphicsItem, QDialog,
+    QFormLayout, QLineEdit, QDialogButtonBox
+
 )
 from PySide6.QtGui import (
     QFont, QColor, QBrush, QPen, QLinearGradient, QPainter,
@@ -341,10 +343,8 @@ class LuaBlock(QGraphicsObject):
     def _add_default_sockets(self):
         """Add default sockets based on block type"""
         if self.block_type == 'event':
-            # Events have output sockets
             self.add_socket("trigger", "execution", "output", "any")
         elif self.block_type == 'action':
-            # Actions have input and output
             self.add_socket("exec_in", "execution", "input", "any")
             self.add_socket("exec_out", "execution", "output", "any")
         elif self.block_type == 'control':
@@ -355,6 +355,18 @@ class LuaBlock(QGraphicsObject):
             elif "Loop" in self.title:
                 self.add_socket("condition", "value", "input", "boolean")
                 self.add_socket("loop_out", "execution", "output", "any")
+        elif self.block_type == 'variable':
+            # Variable blocks need input/output sockets based on type
+            if 'set' in self.title.lower():
+                # Set variable: needs value input
+                self.add_socket("value", "value", "input", "any")
+                self.add_socket("exec_out", "execution", "output", "any")
+            elif 'get' in self.title.lower():
+                # Get variable: outputs the value
+                self.add_socket("result", "value", "output", "any")
+            elif 'increment' in self.title.lower() or 'decrement' in self.title.lower():
+                # Increment/Decrement: modifies variable
+                self.add_socket("exec_out", "execution", "output", "any")
         elif self.block_type == 'function':
             self.add_socket("result", "value", "output", "any")
     
@@ -438,15 +450,74 @@ class LuaBlock(QGraphicsObject):
             self._duplicate_block()
     
     def _open_edit_dialog(self):
-        """Open block edit dialog"""
-        title, ok = QInputDialog.getText(
-            None, "Edit Block", "Enter new title:", 
-            text=self.title
-        )
+        """Open block edit dialog with variable name input for variable blocks"""
         
-        if ok and title.strip():
-            self.title = title.strip()
-            self.title_item.setPlainText(self.title)
+        if self.block_type == 'variable':
+            # Special dialog for variable blocks
+            dialog = QDialog()
+            dialog.setWindowTitle(f"Edit {self.title}")
+            layout = QVBoxLayout(dialog)
+            
+            form_layout = QFormLayout()
+            
+            # Variable name input
+            var_name_input = QLineEdit()
+            var_name_input.setPlaceholderText("Enter variable name (e.g., counter, result, data)")
+            if 'var_name' in self.data:
+                var_name_input.setText(self.data['var_name'])
+            form_layout.addRow("Variable Name:", var_name_input)
+            
+            # Default value input (for Set Variable only)
+            value_input = None
+            if 'set' in self.title.lower():
+                value_input = QLineEdit()
+                value_input.setPlaceholderText("Enter value (e.g., 0, 'hello', {})")
+                if 'value' in self.data:
+                    value_input.setText(self.data['value'])
+                form_layout.addRow("Default Value:", value_input)
+            
+            # Buttons
+            button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            
+            layout.addLayout(form_layout)
+            layout.addWidget(button_box)
+            
+            if dialog.exec():
+                var_name = var_name_input.text().strip()
+                if var_name:
+                    self.data['var_name'] = var_name
+                    
+                    # Save value for Set Variable blocks
+                    if value_input is not None:
+                        value = value_input.text().strip()
+                        if value:
+                            self.data['value'] = value
+                            self.lua_code = f"{var_name} = {value}"
+                        else:
+                            self.data['value'] = 'nil'
+                            self.lua_code = f"{var_name} = nil"
+                    elif 'get' in self.title.lower():
+                        self.lua_code = var_name
+                    elif 'increment' in self.title.lower():
+                        self.lua_code = f"{var_name} = {var_name} + 1"
+                    elif 'decrement' in self.title.lower():
+                        self.lua_code = f"{var_name} = {var_name} - 1"
+                    
+                    # Update title to show variable name
+                    self.title_item.setPlainText(f"{self.title}: {var_name}")
+                    
+        else:
+            # Original edit dialog for other blocks
+            title, ok = QInputDialog.getText(
+                None, "Edit Block", "Enter new title:", 
+                text=self.title
+            )
+            
+            if ok and title.strip():
+                self.title = title.strip()
+                self.title_item.setPlainText(self.title)
     
     def _duplicate_block(self):
         """Duplicate this block with connections"""
@@ -539,25 +610,91 @@ class LuaBlock(QGraphicsObject):
         return block
     
     def generate_lua_code(self, indent: int = 0) -> str:
-        """Generate Lua code from this block"""
+        """Generate Lua code from this block with proper indentation and logic"""
         indent_str = '    ' * indent
         
+        # Special handling for variable blocks
+        if self.block_type == 'variable':
+            # Get variable name from data or use default
+            var_name = self.data.get('var_name', 'my_var')
+            
+            if 'set' in self.title.lower():
+                # Check if there's a connected socket providing the value
+                if 'value' in self.sockets and self.sockets['value'].connected_to:
+                    connected_code = self.sockets['value'].connected_to.block.generate_lua_code(indent)
+                    # Strip any trailing newline or spaces
+                    connected_code_clean = connected_code.strip()
+                    return f"{indent_str}{var_name} = {connected_code_clean}\n"
+                else:
+                    # Use value from data (set in edit dialog) or default
+                    value = self.data.get('value', 'nil')
+                    return f"{indent_str}{var_name} = {value}\n"
+                    
+            elif 'get' in self.title.lower():
+                return f"{indent_str}{var_name}\n"
+                
+            elif 'increment' in self.title.lower():
+                return f"{indent_str}{var_name} = {var_name} + 1\n"
+                
+            elif 'decrement' in self.title.lower():
+                return f"{indent_str}{var_name} = {var_name} - 1\n"
+        
+        # Default code templates based on block type
+        if not self.lua_code and self.block_type != 'event':
+            self.lua_code = self._get_default_code_template()
+        
         if self.lua_code:
-            # Replace placeholders with connected values
             code = self.lua_code
             
-            # For sockets with connections, replace placeholders
-            for socket_name, socket in self.sockets.items():
-                if socket.connected_to and socket.direction == "input":
-                    # Get code from connected block
-                    connected_code = socket.connected_to.block.generate_lua_code(indent)
-                    placeholder = f"{{{socket_name}}}"
-                    if placeholder in code:
-                        code = code.replace(placeholder, connected_code.strip())
+            # Process placeholders for all socket types
+            placeholders_processed = set()
             
-            return f"{indent_str}{code}\n"
+            # Process input sockets first (they provide values)
+            for socket_name, socket in self.sockets.items():
+                if socket.direction == "input":
+                    placeholder = f"{{{socket_name}}}"
+                    if placeholder in code and placeholder not in placeholders_processed:
+                        if socket.connected_to:
+                            connected_block = socket.connected_to.block
+                            connected_code = connected_block.generate_lua_code(indent)
+                            connected_code_clean = connected_code.strip()
+                            code = code.replace(placeholder, connected_code_clean)
+                        else:
+                            default_value = self._get_default_value(socket.data_type)
+                            code = code.replace(placeholder, default_value)
+                        placeholders_processed.add(placeholder)
+            
+            # Format with proper indentation
+            lines = code.split('\n')
+            formatted_lines = []
+            current_indent = indent
+            
+            for line in lines:
+                line = line.rstrip()
+                if not line:
+                    formatted_lines.append('')
+                    continue
+                
+                # Adjust indentation for control structures
+                if line.strip().startswith('end') or line.strip().startswith('else') or line.strip().startswith('elseif'):
+                    current_indent = max(0, current_indent - 1)
+                
+                formatted_line = ('    ' * current_indent) + line
+                formatted_lines.append(formatted_line)
+                
+                # Increase indentation after certain keywords
+                if (line.strip().endswith('then') or 
+                    line.strip().endswith('do') or 
+                    line.strip().startswith('function')):
+                    current_indent += 1
+            
+            return '\n'.join(formatted_lines)
         
-        return f"{indent_str}-- {self.title} block\n"
+        # Fallback for blocks without specific code
+        comment = f"-- {self.title} block"
+        if hasattr(self, 'description') and self.description:
+            comment += f": {self.description}"
+        return f"{indent_str}{comment}\n"
     
     def get_connected_code(self, socket_name: str) -> str:
         """Get code from connected block via specified socket"""
@@ -865,7 +1002,8 @@ class BlockProgrammingView(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setInteractive(True)
-        self.setBackgroundBrush(QBrush(QColor(240, 240, 240)))
+        # self.setBackgroundBrush(QBrush(QColor(240, 240, 240)))
+        self.setBackgroundBrush(QBrush(QColor(248, 248, 242)))
         
         # View settings
         self.current_zoom = 1.0
@@ -928,16 +1066,16 @@ class BlockLibraryWidget(QToolBox):
             ],
             'Variables': [
                 {'type': 'variable', 'title': 'Set Variable', 'icon': '📝',
-                'description': 'Set variable value',
+                'description': 'Set variable value - Double-click to set variable name',
                 'lua_code': '{var_name} = {value}'},
                 {'type': 'variable', 'title': 'Get Variable', 'icon': '📖',
-                'description': 'Get variable value',
+                'description': 'Get variable value - Double-click to set variable name',
                 'lua_code': '{var_name}'},
                 {'type': 'variable', 'title': 'Increment', 'icon': '➕',
-                'description': 'Increase variable by 1',
+                'description': 'Increase variable by 1 - Double-click to set variable name',
                 'lua_code': '{var_name} = {var_name} + 1'},
                 {'type': 'variable', 'title': 'Decrement', 'icon': '➖',
-                'description': 'Decrease variable by 1',
+                'description': 'Decrease variable by 1 - Double-click to set variable name',
                 'lua_code': '{var_name} = {var_name} - 1'},
             ],
             'Math': [
@@ -999,7 +1137,83 @@ class BlockLibraryWidget(QToolBox):
                 {'type': 'function', 'title': 'Write File', 'icon': '📝',
                 'description': 'Write to file',
                 'lua_code': 'local file = io.open("{filename}", "w")\nfile:write("{content}")\nfile:close()'},
-            ]
+            ],
+            'File I/O': [
+                {'type': 'function', 'title': 'Read File', 'icon': '📄',
+                'description': 'Read entire file content',
+                'lua_code': 'local content = read_file({filename})'},
+                {'type': 'action', 'title': 'Write File', 'icon': '💾',
+                'description': 'Write content to file',
+                'lua_code': 'write_file({filename}, {content})'},
+                {'type': 'action', 'title': 'Append to File', 'icon': '➕',
+                'description': 'Append content to file',
+                'lua_code': 'local file = io.open({filename}, "a")\nfile:write({content})\nfile:close()'},
+            ],
+            'String Operations': [
+                {'type': 'operator', 'title': 'String Length', 'icon': '📏',
+                'description': 'Get string length',
+                'lua_code': '#{str}'},
+                {'type': 'operator', 'title': 'String Upper', 'icon': '🔠',
+                'description': 'Convert to uppercase',
+                'lua_code': 'string.upper({str})'},
+                {'type': 'operator', 'title': 'String Lower', 'icon': '🔡',
+                'description': 'Convert to lowercase',
+                'lua_code': 'string.lower({str})'},
+                {'type': 'function', 'title': 'String Substring', 'icon': '✂️',
+                'description': 'Extract substring',
+                'lua_code': 'string.sub({str}, {start}, {end})'},
+                {'type': 'function', 'title': 'String Find', 'icon': '🔍',
+                'description': 'Find pattern in string',
+                'lua_code': 'string.find({str}, {pattern})'},
+                {'type': 'operator', 'title': 'String Concat', 'icon': '➕',
+                'description': 'Concatenate strings',
+                'lua_code': '{a} .. {b}'},
+            ],
+            'Table Operations': [
+                {'type': 'variable', 'title': 'Create Table', 'icon': '📋',
+                'description': 'Create new table',
+                'lua_code': 'local {name} = {}'},
+                {'type': 'action', 'title': 'Table Insert', 'icon': '📥',
+                'description': 'Insert value into table',
+                'lua_code': 'table.insert({table}, {value})'},
+                {'type': 'action', 'title': 'Table Remove', 'icon': '📤',
+                'description': 'Remove value from table',
+                'lua_code': 'table.remove({table}, {index})'},
+                {'type': 'control', 'title': 'For Each', 'icon': '🔄',
+                'description': 'Iterate over table',
+                'lua_code': 'for {key}, {value} in pairs({table}) do\n    -- body\nend'},
+                {'type': 'function', 'title': 'Table Length', 'icon': '📏',
+                'description': 'Get table length',
+                'lua_code': '#{table}'},
+            ],
+            'User Input': [
+                {'type': 'function', 'title': 'Print', 'icon': '🖨️',
+                'description': 'Print to console',
+                'lua_code': 'print({message})'},
+                {'type': 'function', 'title': 'Input', 'icon': '⌨️',
+                'description': 'Get user input',
+                'lua_code': 'local input = io.read()'},
+                {'type': 'function', 'title': 'Input with Prompt', 'icon': '💬',
+                'description': 'Prompt and get input',
+                'lua_code': 'io.write({prompt})\nlocal input = io.read()'},
+            ],
+            'Advanced Math': [
+                {'type': 'function', 'title': 'Random Number', 'icon': '🎲',
+                'description': 'Generate random number',
+                'lua_code': 'math.random({min}, {max})'},
+                {'type': 'function', 'title': 'Square Root', 'icon': '√',
+                'description': 'Calculate square root',
+                'lua_code': 'math.sqrt({x})'},
+                {'type': 'function', 'title': 'Power', 'icon': '^',
+                'description': 'Raise to power',
+                'lua_code': 'math.pow({x}, {y})'},
+                {'type': 'function', 'title': 'Absolute Value', 'icon': '|x|',
+                'description': 'Get absolute value',
+                'lua_code': 'math.abs({x})'},
+                {'type': 'function', 'title': 'Round', 'icon': '○',
+                'description': 'Round number',
+                'lua_code': 'math.floor({x} + 0.5)'},
+            ],
         }
         return blocks
     
@@ -1051,7 +1265,7 @@ class CodePreviewWidget(QTextEdit):
         self.setFont(QFont("Consolas", 10))
         self.setStyleSheet("""
             QTextEdit {
-                background-color: #f8f9fa;
+                background-color: #1e1e2e;
                 border: 1px solid #dee2e6;
                 border-radius: 3px;
             }
